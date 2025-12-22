@@ -1,11 +1,9 @@
 import machine, ssd1306, time, math
 
-# ---------- OLED ----------
 i2c = machine.I2C(0, scl=machine.Pin(22), sda=machine.Pin(21))
 oled = ssd1306.SSD1306_I2C(128, 64, i2c)
 
 def draw_line(x1, y1, x2, y2, col):
-    # Bresenham's line algorithm using pixel
     dx = abs(x2 - x1)
     dy = abs(y2 - y1)
     sx = 1 if x1 < x2 else -1
@@ -23,14 +21,12 @@ def draw_line(x1, y1, x2, y2, col):
             err += dx
             y1 += sy
 
-# ---------- KEYPAD ----------
 row_pins = [33, 25, 26, 27, 14, 12, 13]
 col_pins = [18, 19, 32, 5, 23]
 
 rows = [machine.Pin(p, machine.Pin.OUT, value=1) for p in row_pins]
 cols = [machine.Pin(p, machine.Pin.IN, machine.Pin.PULL_UP) for p in col_pins]
 
-# Key definitions
 keys_normal = [
     ['shift','none','mode','down','up'],
     ['x','[+]','log','left','right'],
@@ -42,7 +38,7 @@ keys_normal = [
 ]
 
 keys_shifted = [
-    ['shift','none','mode','down','up'],  # Changed 'settings' to 'mode' for consistency
+    ['shift','none','mode','down','up'],
     ['y','[-]','ln','left','right'],
     ['10^','||','asin','acos','atan'],
     ['1','2','3','←','ca'],
@@ -51,46 +47,39 @@ keys_shifted = [
     ['inf','0+','e','pi','ans']
 ]
 
-keys = keys_normal  # Initialize global keys
+keys = keys_normal
 
-# ---------- GLOBAL STATE ----------
-expr = ""          # Current equation string
-cursor_pos = 0     # Cursor position index
-ANS = 0            # Last answer
-history = ""       # Previous calculation string
+expr = ""
+cursor_pos = 0
+ANS = 0
+history = ""
 shift = 0
-selected = 0       # Mode menu selection (starts at 0 for 'calc')
+selected = 0
 Mode = "calc"
-modes_list = ["calc", "base", "integral", "equation", "system", "matrix", "slope", "graph"]  # Added 'system' mode
+modes_list = ["calc", "base", "integral", "equation", "system", "matrix", "slope", "graph"]
 
-# New: History and Memory
-history_list = []  # List of (expr, result) tuples, max 10
-history_index = -1  # For scrolling history
-memory = 0.0       # Memory register
-last_res = 0.0     # Last calculation result
-is_result = False  # Flag to indicate if expr is a result (for editing)
-modified_after_result = False  # Flag to indicate if expr has been modified after result
-just_calculated = False  # Flag to indicate if a calculation was just performed
+history_list = []
+history_index = -1
+memory = 0.0
+last_res = 0.0
+is_result = False
+modified_after_result = False
+just_calculated = False
 
-# Angle mode: 'rad' or 'deg'
 angle_mode = 'rad'
 
-# Central token list used for smart cursor/backspace behavior
 TOKEN_LIST = [
     "math.log10(", "math.log(", "math.sin(", "math.cos(", "math.tan(",
     "math.asin(", "math.acos(", "math.atan(", "math.sqrt(",
     "math.ceil(", "math.floor(", "**", "1e308", "1e-308"
 ]
 
-# Exception to handle "Mode" button press deep inside functions
 class ModeSwitch(Exception):
     pass
 
 
 def format_title(name):
-    # Produce an enhanced, capitalized title that fits a 16-char width
     nice = name
-    # Map known modes to nicer names
     mode_map = {
         'calc': 'Calculator',
         'base': 'Base Converter',
@@ -104,23 +93,19 @@ def format_title(name):
     if name in mode_map:
         nice = mode_map[name]
     else:
-        # If it's a prompt like 'f(x):' keep it but capitalize and strip
         nice = str(name).strip()
 
-    # Capitalize each word (avoid str.capitalize for MicroPython compatibility)
     def cap_word(w):
         if not w: return w
         return w[0].upper() + (w[1:].lower() if len(w) > 1 else '')
 
     nice = ' '.join([cap_word(w) for w in nice.split()])
 
-    # Ensure it fits 16 chars
     if len(nice) > 16:
         nice = nice[:15] + '…'
     return nice
 
 
-# Math wrapper to honor degree/radian setting for trig functions
 class MathWrapper:
     def __init__(self, base, use_deg):
         self._m = base
@@ -148,13 +133,11 @@ class MathWrapper:
         return self._to_deg(r) if self._deg else r
 
     def _to_rad(self, x):
-        # If value is a multiple of pi (user used 'pi'), treat as radians.
-        # Otherwise assume the user entered degrees and convert to radians.
         try:
             if isinstance(x, (int, float)) and x != 0:
                 ratio = x / math.pi
                 if abs(ratio - round(ratio)) < 1e-9:
-                    return x  # already radians (multiple of pi)
+                    return x
             return math.radians(x)
         except:
             return x
@@ -166,12 +149,10 @@ class MathWrapper:
             return x
 
     def __getattr__(self, name):
-        # Forward other attributes to real math module
         return getattr(self._m, name)
 
 
 def eval_expr(expr, local_vars=None):
-    # Evaluate expression with math namespace honoring angle_mode
     if local_vars is None:
         local_vars = {}
     g = {
@@ -179,60 +160,42 @@ def eval_expr(expr, local_vars=None):
         'e': math.e,
         'pi': math.pi
     }
-    # merge local vars into globals for eval so user can use x, ans, etc.
     g.update(local_vars)
     return eval(expr, g)
-
-# ---------- DISPLAY ENGINE ----------
 
 def refresh_display(input_str, mode_name, show_cursor=True, prompt_label=None):
     oled.fill(0)
     
-    # 1. Header Bar (optimized: use a single pass if possible, but pixel is slow)
-    # To speed up, consider pre-drawing to buffer if library supports
     for i in range(10):
-        for x in range(0, 128, 8):  # Draw in chunks of 8 pixels for slight speedup
+        for x in range(0, 128, 8):
             for j in range(8):
                 oled.pixel(x + j, i, 1)
     
-    # Use enhanced title only
-    oled.text(format_title(mode_name), 1, 1, 0) # Black text
+    oled.text(format_title(mode_name), 1, 1, 0)
     
-    # Indicators
-    if shift: oled.text("SHIFT", 80, 1, 0)  # Show "SHIFT" when active
+    if shift: oled.text("SHIFT", 80, 1, 0)
     
-    # 2. History (Small text logic simulated by position)
     if mode_name == "calc" and history:
         oled.text(clean_text(history)[:16], 0, 14)
-        draw_line(0, 24, 127, 24, 1) # Separator line
+        draw_line(0, 24, 127, 24, 1)
 
-    # 3. Input Area
-    # Clean the input for display (remove math. prefix)
     display_text = clean_text(input_str)
     
-    # Word-wrap the text
     lines = wrap_text(display_text, 16)
     
-    # Place start_y lower for calc mode so title/header and history fit
     start_y = 28 if (mode_name == "calc") else 14
 
-    # If a prompt label is provided (e.g. "A:"), show it above the input area
     if prompt_label:
         oled.text(clean_text(str(prompt_label))[:16], 0, 14)
-        # Move input area down one line to make room for the prompt label
         start_y = 24
-
-    # Removed generic prompt hint to avoid blurry 'move' text in functions
 
     if not input_str and show_cursor:
          oled.text("|", 0, start_y)
 
-    for i, l in enumerate(lines[-3:]): # Show last 3 lines
+    for i, l in enumerate(lines[-3:]):
         oled.text(l, 0, start_y + i*10)
         
-    # Draw cursor at current position
     if show_cursor and input_str:
-        # Map cursor_pos to display position
         display_prefix = clean_text(input_str[:cursor_pos])
         display_pos = len(display_prefix)
         cx = (display_pos % 16) * 8
@@ -248,10 +211,8 @@ def wrap_text(text, width):
         if len(text) <= width:
             lines.append(text)
             break
-        # Find the last space before width
         idx = text.rfind(' ', 0, width + 1)
         if idx == -1:
-            # No space, break at width
             lines.append(text[:width])
             text = text[width:]
         else:
@@ -260,7 +221,6 @@ def wrap_text(text, width):
     return lines
 
 def clean_text(text):
-    # Makes code readable for humans
     t = text.replace("math.", "")
     t = t.replace("**", "^")
     t = t.replace("log10", "log")
@@ -268,7 +228,6 @@ def clean_text(text):
     return t
 
 def print_(*args):
-    # Advanced print that handles scrolling/wrapping
     oled.fill(0)
     current_y = 0
     
@@ -276,21 +235,18 @@ def print_(*args):
         s = str(arg)
         s = clean_text(s)
         
-        # Wrap text with word wrapping
         lines = wrap_text(s, 16)
         for line in lines:
             oled.text(line, 0, current_y)
             current_y += 10
-            if current_y > 54: # Screen full
+            if current_y > 54:
                 oled.text("...", 110, 54)
                 oled.show()
-                wait_key() # Wait for user to read
+                wait_key()
                 oled.fill(0)
                 current_y = 0
                 
     oled.show()
-
-# ---------- INPUT HANDLING ----------
 
 def wait_key():
     while True:
@@ -299,46 +255,35 @@ def wait_key():
         time.sleep_ms(10)
 
 def input_(prompt_text):
-    # Specialized input function that checks for Mode button
     inp_str = ""
     global keys, shift
     global cursor_pos
 
-    # preserve outer cursor_pos
     outer_cursor = cursor_pos
     cursor_pos = 0
 
     while True:
-        # Ensure keys mapping reflects shift state
         keys = keys_shifted if shift else keys_normal
 
-        # Show prompt using refresh_display (enhanced title)
-        # Use the current Mode as the header and show the prompt_text as a label
         try:
             refresh_display(inp_str, Mode, show_cursor=True, prompt_label=prompt_text)
         except Exception:
-            # Fallback to older behavior if Mode is not accessible
             refresh_display(inp_str, prompt_text, show_cursor=True)
 
         k = read_key()
         if k == "mode": raise ModeSwitch()
 
         if k == "=":
-            # restore outer cursor and return
             cursor_pos = outer_cursor
             return inp_str
         elif k == "c":
             inp_str = ""
             cursor_pos = 0
         elif k == "←":
-            # backspace at cursor
             inp_str, cursor_pos = smart_backspace_at(inp_str, cursor_pos)
         elif k == "shift":
-            # allow toggling shift inside input prompts
             shift = 1 - shift
-            # refresh_display will reflect SHIFT indicator on next loop
         elif k:
-            # navigation keys support for cursor movement
             if k == 'left':
                 if cursor_pos > 0:
                     moved = False
@@ -362,27 +307,21 @@ def input_(prompt_text):
                     if not moved:
                         cursor_pos = min(len(inp_str), cursor_pos + 1)
             elif k in ["up","down","none"]:
-                # ignore other nav keys here
                 pass
             else:
                 token = get_token(k)
                 inp_str = inp_str[:cursor_pos] + token + inp_str[cursor_pos:]
                 cursor_pos += len(token)
-                # untoggle shift after using a shifted key
                 if shift and k != 'shift':
                     shift = 0
                     keys = keys_normal
 
-        # update displayed cursor (refresh_display reads global cursor_pos)
-        # ensure we show the current cursor
         time.sleep_ms(10)
 
-    # restore outer cursor on exit (shouldn't reach here normally)
     cursor_pos = outer_cursor
 
 
 def select_from_list(options, title):
-    # Simple vertical selector for small screen
     sel = 0
     while True:
         oled.fill(0)
@@ -407,7 +346,6 @@ def select_from_list(options, title):
 
 def mode_settings():
     global angle_mode
-    # Show settings header and let user pick Angle units
     choice = select_from_list(["Degree", "Radian"], "Settings")
     if not choice:
         return
@@ -415,7 +353,6 @@ def mode_settings():
         angle_mode = 'deg'
     else:
         angle_mode = 'rad'
-    # Confirmation
     oled.fill(0)
     oled.text("Settings", 0, 0)
     oled.text("Angle:" + choice[:6], 0, 20)
@@ -424,11 +361,9 @@ def mode_settings():
     wait_key()
 
 def smart_backspace(s):
-    # Deletes whole tokens like "math.sin(" instead of just "("
     if not s:
         return ""
 
-    # Match longest tokens first
     for t in sorted(TOKEN_LIST, key=len, reverse=True):
         if s.endswith(t):
             return s[:-len(t)]
@@ -437,8 +372,6 @@ def smart_backspace(s):
 
 
 def smart_backspace_at(s, pos):
-    # Delete token left of cursor at arbitrary cursor position.
-    # Returns (new_string, new_cursor_pos)
     if pos <= 0:
         return s, pos
 
@@ -450,12 +383,10 @@ def smart_backspace_at(s, pos):
             new_left = left[:-len(t)]
             return new_left + right, len(new_left)
 
-    # Default: delete single char
     new_left = left[:-1]
     return new_left + right, len(new_left)
 
 def get_token(k):
-    # Maps key label to Python code
     if k == "x": return "x"
     if k == "^": return "**"
     if k == "log": return "math.log10("
@@ -464,7 +395,6 @@ def get_token(k):
     if k == "cos": return "math.cos("
     if k == "tan": return "math.tan("
     if k == "√": return "math.sqrt("
-    # Prefer inserting symbolic names so eval_expr can control behavior
     if k == "e": return "e"
     if k == "pi": return "pi"
     if k == "[+]": return "math.ceil("
@@ -475,13 +405,10 @@ def get_token(k):
     if k == "atan": return "math.atan("
     return k
 
-# ---------- MODES & LOGIC ----------
-
 def modes_menu():
     global selected
     while True:
         oled.fill(0)
-        # Fill white bar (optimized slightly)
         for i in range(10):
             for x in range(0, 128, 8):
                 for j in range(8):
@@ -494,25 +421,23 @@ def modes_menu():
         for i in range(start_idx, end_idx):
             y = 12 + (i - start_idx) * 10
             prefix = ">" if i == selected else " "
-            # Capitalize nicely
             name = modes_list[i]
             if name.startswith("mode"): name = name.upper()
-            else: name = name[0].upper() + name[1:].lower()  # Manual capitalize
-            oled.text("{} {}".format(prefix, name), 0, y)  # Use .format() for compatibility
+            else: name = name[0].upper() + name[1:].lower()
+            oled.text("{} {}".format(prefix, name), 0, y)
         
         oled.show()
         
         k = wait_key()
         if k == "up":
-            selected = (selected - 1) % len(modes_list)  # Wrap around
+            selected = (selected - 1) % len(modes_list)
         elif k == "down":
-            selected = (selected + 1) % len(modes_list)  # Wrap around
+            selected = (selected + 1) % len(modes_list)
         elif k == "right" or k == "=":
             return modes_list[selected]
         elif k == "mode":
-            return "calc" # Exit to calc
+            return "calc"
 
-# --- 1. Integral ---
 def mode_integral():
     try:
         f = input_("f(x):")
@@ -528,7 +453,6 @@ def mode_integral():
         oled.show()
         
         for i in range(n):
-            # Check for escape
             if i % 50 == 0:
                 if read_key() == "mode": raise ModeSwitch()
                 
@@ -543,7 +467,6 @@ def mode_integral():
         wait_key()
     except ModeSwitch: raise
 
-# --- 2. Equation Solver ---
 def mode_equation():
     try:
         deg_str = input_("Deg(2/3):")
@@ -556,14 +479,11 @@ def mode_equation():
             return
 
         if deg == 2:
-            # Prompt cleanly with header and validate numeric input
-            # Show equation header
             try:
                 refresh_display("", "equation", show_cursor=False, prompt_label="ax^2+bx+c=0")
             except Exception:
                 pass
 
-            # Helper to read a float with retry
             def read_float(label):
                 while True:
                     s = input_(label)
@@ -575,7 +495,6 @@ def mode_equation():
                         oled.text("Press any key", 0, 30)
                         oled.show()
                         wait_key()
-                        # Redisplay header
                         try:
                             refresh_display("", "equation", show_cursor=False, prompt_label="ax^2+bx+c=0")
                         except Exception:
@@ -585,10 +504,8 @@ def mode_equation():
             b = read_float("B:")
             c = read_float("C:")
 
-            # Compute discriminant and roots
             d = b**2 - 4*a*c
 
-            # Prepare formatted strings
             D_txt = "D:{:.6g}".format(d)
             if d >= 0:
                 x1 = (-b + math.sqrt(d)) / (2*a)
@@ -601,7 +518,6 @@ def mode_equation():
                 x1_txt = "x1:{:.2f}+{:.2f}i".format(real, imag)
                 x2_txt = "x2:{:.2f}-{:.2f}i".format(real, imag)
 
-            # Display D, x1, x2 on one page (three lines)
             oled.fill(0)
             oled.text(D_txt[:16], 0, 10)
             oled.text(x1_txt[:16], 0, 24)
@@ -619,7 +535,6 @@ def mode_equation():
             print_(f"{a}x^3+{b}x^2+{c}x+d=0")
             d_val = float(input_("D:"))
 
-            # Newton-Raphson
             x = 0.0
             for i in range(50):
                 fx = a*x**3 + b*x**2 + c*x + d_val
@@ -629,12 +544,10 @@ def mode_equation():
             print_("Real Root:", "{:.6g}".format(x))
             time.sleep(2)
 
-        # Pause briefly and wait for user to acknowledge
         wait_key()
     except ModeSwitch: raise
     except Exception as e: print_("Err:", e); wait_key()
 
-# --- 2.5. System of Equations ---
 def mode_system():
     try:
         n = int(input_("Num eq (1-6):"))
@@ -643,7 +556,6 @@ def mode_system():
             wait_key()
             return
 
-        # Read matrix A and vector b
         A = [[0.0 for _ in range(n)] for __ in range(n)]
         b = [0.0 for _ in range(n)]
 
@@ -652,9 +564,7 @@ def mode_system():
                 A[i][j] = float(input_("a{}{}:".format(i+1, j+1)))
             b[i] = float(input_("b{}:".format(i+1)))
 
-        # Gaussian elimination with partial pivoting
         for k in range(n):
-            # find pivot
             pivot = k
             maxv = abs(A[k][k])
             for i in range(k+1, n):
@@ -669,7 +579,6 @@ def mode_system():
                 A[k], A[pivot] = A[pivot], A[k]
                 b[k], b[pivot] = b[pivot], b[k]
 
-            # eliminate
             for i in range(k+1, n):
                 if A[k][k] == 0:
                     continue
@@ -678,7 +587,6 @@ def mode_system():
                 for j in range(k, n):
                     A[i][j] -= factor * A[k][j]
 
-        # Back substitution
         x = [0.0 for _ in range(n)]
         for i in range(n-1, -1, -1):
             s = b[i]
@@ -690,7 +598,6 @@ def mode_system():
                 return
             x[i] = s / A[i][i]
 
-        # Prepare paginated display: 3 answers per page
         answers = ["x{}: {:.6g}".format(i+1, x[i]) for i in range(n)]
         page = 0
         page_size = 3
@@ -703,7 +610,6 @@ def mode_system():
             for i, line in enumerate(chunk):
                 y = 12 + i*12
                 oled.text(line[:16], 0, y)
-            # Footer: page info
             footer = "{}/{}".format(page+1, total_pages)
             oled.text(footer, 100, 54)
             oled.show()
@@ -718,7 +624,6 @@ def mode_system():
                 if page >= total_pages:
                     break
                 continue
-            # any other key: exit display
             continue
     except ModeSwitch:
         raise
@@ -726,20 +631,18 @@ def mode_system():
         print_("Err:", e)
         wait_key()
 
-# --- 3. Matrix ---
 def mode_matrix():
     try:
         op = float(input_("1:Det 2:Inv"))
         n = int(input_("Size N:"))
         
-        # Visually nice input (optimized: fill only once per row)
         mat = []
         for r in range(n):
-            oled.fill(0)  # Fill once per row
+            oled.fill(0)
             row = []
             for c in range(n):
                 oled.text("Mat Row {}".format(r+1), 0, 0)
-                if r > 0: oled.text(str(mat[-1]), 0, 10) # Show prev row
+                if r > 0: oled.text(str(mat[-1]), 0, 10)
                 row_str = str(row + ["?"])
                 oled.text(row_str, 0, 20)
                 oled.show()
@@ -780,7 +683,6 @@ def get_det(mat, n):
     return det
 
 def get_inverse(mat, n):
-    # Gaussian elimination with augmented identity
     aug = [r[:] + [1 if i==j else 0 for j in range(n)] for i,r in enumerate(mat)]
     for i in range(n):
         p = aug[i][i]
@@ -791,13 +693,11 @@ def get_inverse(mat, n):
                 for j in range(i+1, 2*n): aug[k][j] -= f*aug[i][j]
     return [r[n:] for r in aug]
 
-# --- 4. Slope ---
 def mode_slope():
     try:
         f = input_("f(x):")
         pt = float(input_("x point:"))
         
-        # Compute slopes with different h
         h_values = [1e-5, 1e-6, 1e-7]
         slopes = []
         for h in h_values:
@@ -806,14 +706,13 @@ def mode_slope():
             m = (y2 - y1) / (2 * h)
             slopes.append(m)
         
-        # Filter outliers: remove if differs by >50% from mean of others
         if len(slopes) > 1:
             mean_all = sum(slopes) / len(slopes)
             filtered = [s for s in slopes if abs(s - mean_all) / abs(mean_all) <= 0.5]
             if filtered:
                 final_m = sum(filtered) / len(filtered)
             else:
-                final_m = mean_all  # Fallback if all filtered out
+                final_m = mean_all
         else:
             final_m = slopes[0]
         
@@ -822,26 +721,21 @@ def mode_slope():
     except ModeSwitch: raise
     except: print_("Math Err"); wait_key()
 
-# --- 5. Graph ---
 def mode_graph():
     try:
         f = input_("f(x):")
         g = input_("g(x):")
 
-        # Allow empty g
         have_g = bool(g and g.strip())
 
-        # Center x and scale
         x_center = 0.0
         y_center = 0.0
-        scale_x = 20.0  # span of x across screen
-        scale_y = 20.0  # span of y across screen
+        scale_x = 20.0
+        scale_y = 20.0
 
         while True:
             oled.fill(0)
 
-            # Draw axes according to x_center,y_center (so axes pan with point)
-            # Compute pixel for graph x=0 and y=0
             try:
                 px0 = 64 + int((0 - x_center) * (128.0 / scale_x))
             except:
@@ -859,7 +753,6 @@ def mode_graph():
             prev_y_f = None
             prev_y_g = None
             for px in range(128):
-                # Map pixel x to graph x
                 gx = x_center + (px - 64) * (scale_x / 128)
                 try:
                     gy_f = eval_expr(f, {"x": gx})
@@ -872,7 +765,6 @@ def mode_graph():
                     except:
                         gy_g = None
 
-                # Convert graph y to pixel y (relative to y_center)
                 if gy_f is not None:
                     py_f = 32 - int((gy_f - y_center) * (64.0 / scale_y))
                     if 0 <= py_f <= 63:
@@ -886,7 +778,6 @@ def mode_graph():
                 if have_g and gy_g is not None:
                     py_g = 32 - int((gy_g - y_center) * (64.0 / scale_y))
                     if 0 <= py_g <= 63:
-                        # draw g slightly differently (pixel too)
                         oled.pixel(px, py_g, 1)
                         if prev_y_g is not None and abs(prev_y_g - py_g) < 20:
                             draw_line(px-1, prev_y_g, px, py_g, 1)
@@ -894,7 +785,6 @@ def mode_graph():
                     else:
                         prev_y_g = None
 
-            # Compute and show f(x_center) and optionally g(x_center)
             try:
                 f_val = eval_expr(f, {"x": x_center})
             except:
@@ -913,18 +803,11 @@ def mode_graph():
                 top_line += ' ' + ('g({:.3g})={:.3g}'.format(x_center, g_val) if g_val is not None else 'g(-)=nan')
             oled.text(top_line[:16], 0, 0)
 
-            # Show x at bottom
             bottom = 'x={:.3g}'.format(x_center)
             oled.text(bottom[:16], 0, 54)
 
             oled.show()
 
-            # Interactive controls:
-            # left/right: move x by ±1
-            # up/down: pan y by ±1 (viewing only)
-            # '=' : prompt for precise x input
-            # '+' / '-' : zoom in/out
-            # 'c' : reset x to 0
             k = read_key()
             if k == 'mode':
                 raise ModeSwitch()
@@ -937,7 +820,6 @@ def mode_graph():
             elif k == 'down':
                 y_center -= 1
             elif k == '=':
-                # prompt user for precise x
                 try:
                     v = input_('x:')
                     if v:
@@ -947,28 +829,21 @@ def mode_graph():
                 except:
                     pass
             elif k == '+':
-                # zoom in
                 scale_x = max(0.1, scale_x * 0.8)
                 scale_y = max(0.1, scale_y * 0.8)
             elif k == '-':
-                # zoom out
                 scale_x = min(1e6, scale_x * 1.25)
                 scale_y = min(1e6, scale_y * 1.25)
             elif k == 'c':
                 x_center = 0.0
 
-            # Mark selected x on the x-axis with a small tick and mark value on graph
-            # Selected x always maps to pixel 64 (center)
             sel_px = 64
-            # axis pixel for y=0
             if 0 <= py0 <= 63:
-                # small vertical tick on axis
                 for ty in range(-2, 3):
                     yy = py0 + ty
                     if 0 <= yy <= 63:
                         oled.pixel(sel_px, yy, 1)
 
-            # If f/g have values at x_center, mark the point on the graph
             try:
                 val_f = eval_expr(f, {"x": x_center})
                 py_f_sel = 32 - int((val_f - y_center) * (64.0 / scale_y))
@@ -977,22 +852,18 @@ def mode_graph():
             except:
                 pass
 
-            # small sleep to debounce
             time.sleep_ms(100)
 
     except ModeSwitch:
         raise
 
-# --- 0.5. Base Conversion ---
 def mode_base():
     try:
-        # Let user pick target base from a list
         choice = select_from_list(['2', '8', '10', '16'], 'To Base')
         if not choice:
             return
         to_base = int(choice)
 
-        # Ask for a decimal number to convert
         dec_in = input_('Dec:')
         try:
             val = float(dec_in)
@@ -1004,7 +875,6 @@ def mode_base():
 
         total = intval
 
-        # Convert result to target base
         if to_base == 2:
             result = bin(total)[2:]
         elif to_base == 8:
@@ -1024,46 +894,37 @@ def mode_base():
         print_('Error')
         wait_key()
 
-# ---------- KEYPAD DRIVER ----------
-
 def read_key():
     for r_i, r in enumerate(rows):
         r.value(0)
         for c_i, c in enumerate(cols):
             if c.value() == 0:
-                time.sleep_ms(5)  # Short debounce delay
-                if c.value() == 0:  # Confirm press
+                time.sleep_ms(5)
+                if c.value() == 0:
                     k = keys[r_i][c_i]
-                    # Debug: uncomment to check key value
-                    #print(k)
-                    while c.value() == 0:  # Wait for release
+                    while c.value() == 0:
                         time.sleep_ms(5)
                     r.value(1)
                     return k
         r.value(1)
     return None
 
-# ---------- CALCULATOR CORE ----------
-
 def process_calculator_key(k):
     global expr, cursor_pos, shift, keys, history, ANS, Mode, history_list, history_index, memory, last_res, is_result, modified_after_result, just_calculated
 
     keys = keys_shifted if shift else keys_normal
 
-    # 1. Mode Switch
     if k == "mode":
         Mode = "selecting"
         is_result = False
         modified_after_result = False
         return
 
-    # 2. Shift Toggle
     if k == "shift":
         shift = 1 - shift
         refresh_display(expr, Mode)
         return
 
-    # 2.5. Settings button (mapped to 'none' key)
     if k == "none":
         try:
             mode_settings()
@@ -1073,27 +934,23 @@ def process_calculator_key(k):
             pass
         return
 
-    # 3. Calculation
     if k == "=":
         try:
-            # Auto-close parentheses
             open_p = expr.count('(')
             close_p = expr.count(')')
             expr += ')' * (open_p - close_p)
             
             res = eval_expr(expr, {"ans": ANS, "memory": memory})
             
-            history = "{}={}".format(clean_text(expr), str(res))  # Include result in history
+            history = "{}={}".format(clean_text(expr), str(res))
             ANS = res
-            last_res = res  # Update last result
+            last_res = res
             
-            # Add to history
             history_list.append((expr, str(res)))
             if len(history_list) > 10:
                 history_list.pop(0)
-            history_index = -1  # Reset history index
+            history_index = -1
             
-            # Format Result
             if isinstance(res, float):
                 if abs(res) < 1e-9: res = 0
                 expr = "{:.6g}".format(res)
@@ -1101,9 +958,9 @@ def process_calculator_key(k):
                 expr = str(res)
                 
             cursor_pos = len(expr)
-            is_result = True  # Mark as result
-            modified_after_result = False  # Reset modification flag
-            just_calculated = True  # Set flag for 2-sec wait
+            is_result = True
+            modified_after_result = False
+            just_calculated = True
         except Exception:
             expr = ""
             cursor_pos = 0
@@ -1112,7 +969,6 @@ def process_calculator_key(k):
             is_result = False
             modified_after_result = False
             
-    # 4. Clear / Backspace
     elif k == "c":
         expr = ""
         cursor_pos = 0
@@ -1122,11 +978,9 @@ def process_calculator_key(k):
         if cursor_pos > 0:
             expr, cursor_pos = smart_backspace_at(expr, cursor_pos)
         
-    # 5. Cursor Movement
     elif k == "left":
         if cursor_pos > 0:
             moved = False
-            # Try to move left by a whole token if present
             for t in sorted(TOKEN_LIST, key=len, reverse=True):
                 l = len(t)
                 if cursor_pos - l >= 0 and expr[cursor_pos-l:cursor_pos] == t:
@@ -1138,7 +992,6 @@ def process_calculator_key(k):
     elif k == "right":
         if cursor_pos < len(expr):
             moved = False
-            # Try to move right by a whole token if present
             for t in sorted(TOKEN_LIST, key=len, reverse=True):
                 l = len(t)
                 if cursor_pos + l <= len(expr) and expr[cursor_pos:cursor_pos+l] == t:
@@ -1148,7 +1001,6 @@ def process_calculator_key(k):
             if not moved:
                 cursor_pos = min(len(expr), cursor_pos + 1)
         
-    # 6. History Scrolling (in calc mode)
     elif k == "up":
         if history_list:
             history_index = (history_index + 1) % len(history_list)
@@ -1164,9 +1016,7 @@ def process_calculator_key(k):
             is_result = False
             modified_after_result = False
         
-    # 7. Memory Operations
     elif k == "M+":
-        # Add latest result to memory; prefer ANS if present
         try:
             val = ANS if (is_result or ANS != 0) else last_res
         except:
@@ -1178,7 +1028,7 @@ def process_calculator_key(k):
         except:
             val = last_res
         memory -= val
-    elif k == "ans":  # Show MBR (memory register)
+    elif k == "ans":
         try:
             oled.fill(0)
             oled.text("MBR:", 0, 10)
@@ -1187,12 +1037,11 @@ def process_calculator_key(k):
             wait_key()
         except:
             pass
-    elif k == "ca":  # MC: Clear memory
+    elif k == "ca":
         memory = 0.0
         
-    # 8. Typing
     elif k:
-        if k in ["settings"]: pass  # Ignore unused
+        if k in ["settings"]: pass
         else:
             token = get_token(k)
             if is_result and not modified_after_result and token not in ["+", "-", "*", "/", "**"]:
@@ -1201,17 +1050,13 @@ def process_calculator_key(k):
             expr = expr[:cursor_pos] + token + expr[cursor_pos:]
             cursor_pos += len(token)
             modified_after_result = True
-            # untoggle shift after typing a non-shift key
             if shift and k != 'shift':
                 shift = 0
                 keys = keys_normal
     
-    # Reset shift after non-shift key
     if shift and k != "shift":
         shift = 0
         keys = keys_normal
-
-# ---------- MAIN LOOP ----------
 
 def main():
     global Mode, expr, selected, just_calculated, keys, shift
@@ -1219,21 +1064,17 @@ def main():
     try:
         print_("RMNO21", "CALCULATOR v2", "Booting...")
     except Exception as e:
-        print("OLED Error on boot:", str(e))  # Debug print to terminal
-        # Continue without OLED if possible, but since it's critical, perhaps halt or simplify
+        print("OLED Error on boot:", str(e))
     
     time.sleep(1)
     
     while True:
         try:
-            # --- MENU MODE ---
             if Mode == "selecting":
                 new_mode = modes_menu()
                 if new_mode: Mode = new_mode
 
-            # --- CALCULATOR MODE ---
             elif Mode == "calc":
-                # Ensure key labels reflect current shift state before reading keypad
                 keys = keys_shifted if shift else keys_normal
 
                 refresh_display(expr, "calc")
@@ -1244,7 +1085,6 @@ def main():
                 if k: process_calculator_key(k)
                 time.sleep_ms(10)
 
-            # --- FUNCTION MODES ---
             else:
                 try:
                     if Mode == "base": mode_base()
@@ -1255,23 +1095,19 @@ def main():
                     elif Mode == "slope": mode_slope()
                     elif Mode == "graph": mode_graph()
                     
-                    # If function finishes normally, go back to calc
-                    Mode = "calc" 
+                    Mode = "calc"
                 
                 except ModeSwitch:
-                    # User pressed Mode button inside function
                     Mode = "selecting"
                     
         except Exception as e:
-            # Global crash handler
-            print("System Error:", str(e))  # Debug print to terminal
+            print("System Error:", str(e))
             try:
                 print_("System Error", str(e))
             except:
-                pass  # If OLED fails, skip display
+                pass
             time.sleep(2)
             Mode = "calc"
             expr = ""
 
-# Start
 main()
