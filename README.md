@@ -2,6 +2,8 @@
 
 A high-performance, feature-rich engineering calculator built using **MicroPython**, an **ESP32**, and an **SSD1306 OLED** display. It supports everything from basic arithmetic to calculus, matrix operations, and function graphing.
 
+
+
 <img width="1041" height="815" alt="image" src="https://github.com/user-attachments/assets/23ff08c0-cc20-49cd-b041-009015c6f679" />
 
 
