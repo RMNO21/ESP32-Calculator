@@ -90,7 +90,17 @@ Feel free to fork this project, report bugs, or submit pull requests. I am parti
 * Optimizing the OLED refresh rate for smoother graphing.
 * Adding complex number support to the standard calculator mode.
 
-**Project Link:** [https://github.com/RMNO21/ESP32-Calculator](https://github.com/RMNO21/ESP32-Calculator)
-**Simulator Link:**https://wokwi.com/projects/451010467250938881
+
+
+## 🔗 Project Links
+
+| Resource | Link |
+| --- | --- |
+| **GitHub Repository** | [RMNO21/ESP32-Calculator](https://github.com/RMNO21/ESP32-Calculator) |
+| **Online Simulator** | [Interactive Wokwi Simulation](https://wokwi.com/projects/451010467250938881) |
+
+> **Note:** The Wokwi simulator is a great way to test the keypad logic and OLED display rendering directly in your browser before assembling the physical hardware.
+
+
 
 
