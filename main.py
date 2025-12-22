@@ -20,27 +20,35 @@ keys = [
     ['7','8','9','+','-'],
     ['.','0','(',')','=']
 ]
+
+# ---------- STATE ----------
+expr = ""
+ANS = 0
+shift=0
+selected=1
+Mode="calc"
+# Added new modes here
+modes_list= ["selecting", "calc", "integral", "equation", "matrix", "slope", "graph"]
+
 # ------------selecting modes-------------
-
 def modes(selected):
-
     oled.fill(0)
-
-    modes_list= ["selecting", "calc", "integral","mode 4", "mode 5", "mode 6","mode 7", "mode 8", "mode 9"]
+    # Update local list to match global
+    modes_list_local = ["selecting", "calc", "integral", "equation", "matrix", "slope", "graph"]
+    
     if selected < 1:
         selected = 1
-    if selected >= len(modes_list):
-        selected = len(modes_list) - 1    
+    if selected >= len(modes_list_local):
+        selected = len(modes_list_local) - 1    
     a=selected//6
-    b=min((a+1)*6,len(modes_list))
-
+    b=min((a+1)*6,len(modes_list_local))
 
     for i in range(a*6, b):
         y = (i - a*6) * 10
         if i == selected:
-            oled.text(">" + modes_list[i], 0, y)
+            oled.text(">" + modes_list_local[i], 0, y)
         else:
-            oled.text(" " + modes_list[i], 0, y)
+            oled.text(" " + modes_list_local[i], 0, y)
 
     oled.show()
     return(selected)
@@ -48,102 +56,256 @@ def modes(selected):
 # ---------built-in functions:
 def print_(*args):
     oled.fill(0)
-    for i in range (len(args)) :
-            args[i]=args[i].replace("**", "^")
-            args[i]=args[i].replace("math.", "")
-            args[i]=args[i].replace("math.log(", "ln(")
-        oled.text(args[i],0,i*10)
+    for i, arg in enumerate(args):
+        arg=str(arg)
+        arg = arg.replace("**", "^")
+        arg = arg.replace("math.", "")
+        arg = arg.replace("math.log(", "ln(")
+        # truncate long lines
+        if len(arg) > 16: arg = arg[:16]
+        oled.text(arg, 0, i*10)
     oled.show()
 
-def input_():
-    inp=""
-    while True:
-        key = read_key()
-        if key=="=":
-            break
-        if key:
-            inp=inp+process_key(key)
-        time.sleep_ms(10)
-    return inp
+def input_(text=None):
+    if text is not None:
+        print_(text)
+        inp=""
+        while True:
+            key = read_key()
+            if key=="=":
+                break
+            if key:
+                if key == "c": inp = ""
+                elif key == "←": inp = inp[:-1]
+                else: inp=inp+process_key_simple(key)
+            time.sleep_ms(10)
+            print_(text,inp)
+        return inp
+    return ""
 
+# Helper to process keys without executing math (for inputs)
+def process_key_simple(k):
+    if k in ["shift","mode","up","down","left","right","none"]: return ""
+    if k == "x": return "x"
+    if k == "^": return "**"
+    if k == "log": return "math.log10("
+    if k == "ln": return "math.log("
+    if k == "sin": return "math.sin("
+    if k == "cos": return "math.cos("
+    if k == "tan": return "math.tan("
+    if k == "√": return "math.sqrt("
+    return k
 
-
-# ---------- STATE ----------
-
-
-expr = ""
-ANS = 0
-shift=0
-selected=1
-Mode="calc"
-modes_list= ["selecting", "calc", "integral","mode 4", "mode 5", "mode 6","mode 7", "mode 8", "mode 9"]
 # ----------Modes--------------
+
 def integral():
-    oled.fill(0)
-    key=""
-    func=""
-    while key!="=":
-        key = read_key()
-        if key=="=":
-            break
-        elif key:
-            func+=str(process_key(key))
-
-        oled.fill(0)
-        oled.text("enter f(x): ",0,0)
-        oled.text("S "+func+" dx",0,10)
-        oled.show()
-
-    #a = float(input("start point: "))
-    start=""
-    expr=""
-    while True:
-        key = read_key()
-        if key=="=":
-            break
-        if key:
-            start=str(process_key(key))
-
-        oled.fill(0)
-        oled.text("enter start: ",0,0)
-        oled.text("a: "+start,0,10)
-        oled.show()    
-
-    #b = float(input("end point: "))
-    end=""
-    expr=""
-    while True:
-        key = read_key()
-        if key=="=":
-            break
-        if key:
-            end=str(process_key(key))
-
-        oled.fill(0)
-        oled.text("enter end: ",0,0)
-        oled.text("b: "+end,0,10)
-        oled.show()
-    #print(start)
-    a=int(start)
-    b=int(end)
-    n=1000*10**math.log10(b-a)
+    func = input_("enter f(x): ")
+    a = float(input_("start point: "))
+    b = float(input_("end point: "))
+    n=1000 # fixed steps for speed
 
     step = (b - a) / n
     x = a + step / 2
     ans = 0
     i=0
+    print_("calculating...")
     while x < b:
-        if i%(n/10)==0:
-            print(int((i/n)*100),"%",sep='',end="\r")
-            
-        value = eval(func, {"x": x, "math": math})
-        ans += value
+        try:
+            value = eval(func, {"x": x, "math": math, "e": math.e, "pi": math.pi})
+            ans += value
+        except:
+            pass # ignore domain errors
         x += step
         i+=1
-    print (ans * step)
-    return ans * step
+    print_("Result:", ans * step)
 
+def solve_eq():
+    degree = float(input_("deg (2 or 3)? "))
+    
+    if degree == 2:
+        a = float(input_("a: "))
+        b = float(input_("b: "))
+        c = float(input_("c: "))
+        delta = b**2 - 4*a*c
+        if delta < 0:
+            print_("Complex Roots")
+        else:
+            x1 = (-b + math.sqrt(delta)) / (2*a)
+            x2 = (-b - math.sqrt(delta)) / (2*a)
+            print_("x1="+format_result(x1), "x2="+format_result(x2))
+            
+    elif degree == 3:
+        # Solving ax^3 + bx^2 + cx + d = 0
+        a = float(input_("a: "))
+        b = float(input_("b: "))
+        c = float(input_("c: "))
+        d = float(input_("d: "))
+        
+        # simple numerical solver (Newton Raphson) to find one real root
+        x = 0.0 # guess
+        for i in range(20):
+            fx = a*x**3 + b*x**2 + c*x + d
+            dfx = 3*a*x**2 + 2*b*x + c
+            if dfx == 0: break
+            x = x - fx/dfx
+        
+        print_("Real root approx:", format_result(x))
+    else:
+        print_("Not supprted")
 
+def matrix_ops():
+    mode_m = float(input_("1:Det 2:Inv 3:Sys"))
+    n = int(input_("Size n? "))
+    
+    # Input Matrix A
+    mat = []
+    print_("Enter Matrix A")
+    time.sleep(1)
+    for r in range(n):
+        row = []
+        for c in range(n):
+            val = float(input_(f"A[{r+1}][{c+1}]: "))
+            row.append(val)
+        mat.append(row)
+        
+    if mode_m == 1: # Determinant
+        det = get_det(mat, n)
+        print_("Det =", det)
+        
+    elif mode_m == 2: # Inverse
+        det = get_det(mat, n) # check singularity
+        if abs(det) < 1e-9:
+            print_("Singular Matrix")
+        else:
+            inv = get_inverse(mat, n)
+            print_("Inv calculated")
+            time.sleep(1)
+            # Show row by row
+            for r in range(n):
+                s = ""
+                for val in inv[r]:
+                    s += "{:.1f},".format(val)
+                print_(f"R{r+1}:", s)
+                while read_key() != "=": time.sleep_ms(10)
+                
+    elif mode_m == 3: # System Ax=B
+        b_vec = []
+        print_("Enter Vector B")
+        time.sleep(1)
+        for i in range(n):
+            val = float(input_(f"B[{i+1}]: "))
+            b_vec.append(val)
+            
+        res = solve_system(mat, b_vec, n)
+        if res is None:
+            print_("No unique sol")
+        else:
+            for i in range(n):
+                print_(f"X{i+1} =", format_result(res[i]))
+                while read_key() != "=": time.sleep_ms(10)
+
+# Matrix Helpers
+def get_det(mat, n):
+    temp = [row[:] for row in mat] # copy
+    det = 1
+    for i in range(n):
+        pivot = i
+        while pivot < n and temp[pivot][i] == 0: pivot += 1
+        if pivot == n: return 0 # singular
+        if pivot != i:
+            temp[i], temp[pivot] = temp[pivot], temp[i]
+            det *= -1
+        det *= temp[i][i]
+        for j in range(i + 1, n):
+            factor = temp[j][i] / temp[i][i]
+            for k in range(i + 1, n):
+                temp[j][k] -= factor * temp[i][k]
+    return det
+
+def get_inverse(mat, n):
+    # Augmented matrix [A | I]
+    aug = [row[:] + [1 if i == j else 0 for j in range(n)] for i, row in enumerate(mat)]
+    
+    # Gaussian Elimination
+    for i in range(n):
+        pivot = aug[i][i]
+        for j in range(i+1, 2*n): aug[i][j] /= pivot
+        for k in range(n):
+            if k != i:
+                factor = aug[k][i]
+                for j in range(i+1, 2*n): aug[k][j] -= factor * aug[i][j]
+                
+    return [row[n:] for row in aug]
+
+def solve_system(A, B, n):
+    # Cramer's rule is slow, use Gauss-Jordan logic simply
+    # Create Augmented A|B
+    aug = [A[i][:] + [B[i]] for i in range(n)]
+    
+    for i in range(n):
+        pivot = aug[i][i]
+        if pivot == 0: return None
+        for j in range(i, n+1): aug[i][j] /= pivot
+        for k in range(n):
+            if k != i:
+                factor = aug[k][i]
+                for j in range(i, n+1): aug[k][j] -= factor * aug[i][j]
+    return [row[n] for row in aug]
+
+def calc_slope():
+    func = input_("enter f(x): ")
+    pt = float(input_("at point: "))
+    h = 0.0001
+    
+    # f(x+h)
+    x = pt + h
+    y2 = eval(func, {"x": x, "math": math})
+    # f(x-h)
+    x = pt - h
+    y1 = eval(func, {"x": x, "math": math})
+    
+    slope = (y2 - y1) / (2*h)
+    print_("Slope m =", slope)
+
+def graph_func():
+    func = input_("f(x): ")
+    # Simple auto scale or fixed
+    xmin = -10
+    xmax = 10
+    ymin = -10
+    ymax = 10
+    
+    oled.fill(0)
+    # Draw axes
+    oled.vline(64, 0, 64, 1) # Y axis
+    oled.hline(0, 32, 128, 1) # X axis
+    
+    prev_px = None
+    prev_py = None
+    
+    for col in range(128):
+        # map screen x (0-128) to graph x
+        x_val = xmin + (col / 128) * (xmax - xmin)
+        try:
+            y_val = eval(func, {"x": x_val, "math": math})
+            
+            # map graph y to screen y (64-0)
+            # 64 pixels height. 
+            py = 64 - int((y_val - ymin) / (ymax - ymin) * 64)
+            
+            if 0 <= py < 64:
+                oled.pixel(col, py, 1)
+                # simple line connect
+                if prev_py is not None and abs(prev_py - py) < 10:
+                    oled.line(col-1, prev_py, col, py, 1)
+                prev_py = py
+            else:
+                prev_py = None
+        except:
+            prev_py = None
+            
+    oled.show()
+    print_("Done. Press =")
 
 # ---------- DISPLAY ----------
 def show(text,Mode):
@@ -207,12 +369,10 @@ def process_key(k):
     keys = shifted if shift else normal
     if Mode!="calc":
         expr=""
-    #if k == "shift":
-    #    shift = 1 - shift  # Toggle shift state (0 to 1 or 1 to 0)
 
     if k == "=":
         try:
-            result = eval(expr, {"math": math})
+            result = eval(expr, {"math": math, "e": math.e, "pi": math.pi})
             ANS = result
             expr = format_result(result)
             show(expr,Mode)
@@ -220,7 +380,6 @@ def process_key(k):
             expr = ""
             show("ERROR",Mode)
         return
-    #elif k == "settings":
 
     elif k=="mode":
         modes(selected)
@@ -236,7 +395,7 @@ def process_key(k):
         selected=selected+1
         selected=modes(selected)
         return
-    #elif k=="left":
+    
     elif k=="right" and Mode =="selecting":
         Mode =modes_list[selected]
         
@@ -247,19 +406,17 @@ def process_key(k):
         
 
     
-    #elif k=="right":
-    
     elif k=="[+]":
         expr=expr+"math.ceil("
     elif k=="[-]":
         expr=expr+"math.floor("
     elif k=="ln":
-        expr=expr+"math.log"
+        expr=expr+"math.log("
 
     elif k=="10^":
         expr=expr+"*10**("
     elif k=="||":
-        expr=expr+"math.abs("
+        expr=expr+"abs("
     elif k=="asin":
         expr=expr+"math.asin("
     elif k=="acos":
@@ -268,14 +425,11 @@ def process_key(k):
         expr=expr+"math.atan("
     elif k=="ca":
         expr=""
-    #elif k=="M+":
-
-    #elif k=="M-":
 
     elif k=="e":
-        expr=expr+math.e
+        expr=expr+"math.e"
     elif k=="pi":
-        expr=expr+math.pi
+        expr=expr+"math.pi"
     elif k == "inf":
         expr += "1e308" 
     elif k == "0+":
@@ -304,7 +458,7 @@ def process_key(k):
     elif k == "shift":
 
         if shift == 0:
-           
+            
             shift = 1
             keys = shifted
             expr += k
@@ -342,6 +496,39 @@ show("Ready",Mode)
 while True:
     if Mode =="integral":
         integral()
+        while True:
+            key = read_key()
+            if key: break 
+            time.sleep_ms(10)
+    
+    elif Mode == "equation":
+        solve_eq()
+        while True:
+            key = read_key()
+            if key: break
+            time.sleep_ms(10)
+
+    elif Mode == "matrix":
+        matrix_ops()
+        while True:
+            key = read_key()
+            if key: break
+            time.sleep_ms(10)
+
+    elif Mode == "slope":
+        calc_slope()
+        while True:
+            key = read_key()
+            if key: break
+            time.sleep_ms(10)
+
+    elif Mode == "graph":
+        graph_func()
+        while True:
+            key = read_key()
+            if key: break
+            time.sleep_ms(10)
+
     key = read_key()
     if key:
         process_key(key)
