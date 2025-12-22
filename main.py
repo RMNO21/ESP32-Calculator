@@ -33,7 +33,7 @@ modes_list= ["selecting", "calc", "integral", "equation", "matrix", "slope", "gr
 # ------------selecting modes-------------
 def modes(selected):
     oled.fill(0)
-    # Update local list to match global
+    
     modes_list_local = ["selecting", "calc", "integral", "equation", "matrix", "slope", "graph"]
     
     if selected < 1:
@@ -61,7 +61,7 @@ def print_(*args):
         arg = arg.replace("**", "^")
         arg = arg.replace("math.", "")
         arg = arg.replace("math.log(", "ln(")
-        # truncate long lines
+        
         if len(arg) > 16: arg = arg[:16]
         oled.text(arg, 0, i*10)
     oled.show()
@@ -83,7 +83,6 @@ def input_(text=None):
         return inp
     return ""
 
-# Helper to process keys without executing math (for inputs)
 def process_key_simple(k):
     if k in ["shift","mode","up","down","left","right","none"]: return ""
     if k == "x": return "x"
@@ -102,7 +101,7 @@ def integral():
     func = input_("enter f(x): ")
     a = float(input_("start point: "))
     b = float(input_("end point: "))
-    n=1000 # fixed steps for speed
+    n=1000 
 
     step = (b - a) / n
     x = a + step / 2
@@ -114,7 +113,7 @@ def integral():
             value = eval(func, {"x": x, "math": math, "e": math.e, "pi": math.pi})
             ans += value
         except:
-            pass # ignore domain errors
+            pass 
         x += step
         i+=1
     print_("Result:", ans * step)
@@ -140,9 +139,7 @@ def solve_eq():
         b = float(input_("b: "))
         c = float(input_("c: "))
         d = float(input_("d: "))
-        
-        # simple numerical solver (Newton Raphson) to find one real root
-        x = 0.0 # guess
+        x = 0.0
         for i in range(20):
             fx = a*x**3 + b*x**2 + c*x + d
             dfx = 3*a*x**2 + 2*b*x + c
@@ -156,8 +153,7 @@ def solve_eq():
 def matrix_ops():
     mode_m = float(input_("1:Det 2:Inv 3:Sys"))
     n = int(input_("Size n? "))
-    
-    # Input Matrix A
+
     mat = []
     print_("Enter Matrix A")
     time.sleep(1)
@@ -168,19 +164,19 @@ def matrix_ops():
             row.append(val)
         mat.append(row)
         
-    if mode_m == 1: # Determinant
+    if mode_m == 1: 
         det = get_det(mat, n)
         print_("Det =", det)
         
-    elif mode_m == 2: # Inverse
-        det = get_det(mat, n) # check singularity
+    elif mode_m == 2: 
+        det = get_det(mat, n) 
         if abs(det) < 1e-9:
             print_("Singular Matrix")
         else:
             inv = get_inverse(mat, n)
             print_("Inv calculated")
             time.sleep(1)
-            # Show row by row
+            =
             for r in range(n):
                 s = ""
                 for val in inv[r]:
@@ -188,7 +184,7 @@ def matrix_ops():
                 print_(f"R{r+1}:", s)
                 while read_key() != "=": time.sleep_ms(10)
                 
-    elif mode_m == 3: # System Ax=B
+    elif mode_m == 3: 
         b_vec = []
         print_("Enter Vector B")
         time.sleep(1)
@@ -204,14 +200,14 @@ def matrix_ops():
                 print_(f"X{i+1} =", format_result(res[i]))
                 while read_key() != "=": time.sleep_ms(10)
 
-# Matrix Helpers
+
 def get_det(mat, n):
-    temp = [row[:] for row in mat] # copy
+    temp = [row[:] for row in mat] 
     det = 1
     for i in range(n):
         pivot = i
         while pivot < n and temp[pivot][i] == 0: pivot += 1
-        if pivot == n: return 0 # singular
+        if pivot == n: return 0 
         if pivot != i:
             temp[i], temp[pivot] = temp[pivot], temp[i]
             det *= -1
@@ -223,10 +219,8 @@ def get_det(mat, n):
     return det
 
 def get_inverse(mat, n):
-    # Augmented matrix [A | I]
     aug = [row[:] + [1 if i == j else 0 for j in range(n)] for i, row in enumerate(mat)]
     
-    # Gaussian Elimination
     for i in range(n):
         pivot = aug[i][i]
         for j in range(i+1, 2*n): aug[i][j] /= pivot
@@ -238,8 +232,7 @@ def get_inverse(mat, n):
     return [row[n:] for row in aug]
 
 def solve_system(A, B, n):
-    # Cramer's rule is slow, use Gauss-Jordan logic simply
-    # Create Augmented A|B
+
     aug = [A[i][:] + [B[i]] for i in range(n)]
     
     for i in range(n):
@@ -257,10 +250,10 @@ def calc_slope():
     pt = float(input_("at point: "))
     h = 0.0001
     
-    # f(x+h)
+
     x = pt + h
     y2 = eval(func, {"x": x, "math": math})
-    # f(x-h)
+
     x = pt - h
     y1 = eval(func, {"x": x, "math": math})
     
@@ -269,33 +262,32 @@ def calc_slope():
 
 def graph_func():
     func = input_("f(x): ")
-    # Simple auto scale or fixed
+
     xmin = -10
     xmax = 10
     ymin = -10
     ymax = 10
     
     oled.fill(0)
-    # Draw axes
-    oled.vline(64, 0, 64, 1) # Y axis
-    oled.hline(0, 32, 128, 1) # X axis
+
+    oled.vline(64, 0, 64, 1) 
+    oled.hline(0, 32, 128, 1) 
     
     prev_px = None
     prev_py = None
     
     for col in range(128):
-        # map screen x (0-128) to graph x
+
         x_val = xmin + (col / 128) * (xmax - xmin)
         try:
             y_val = eval(func, {"x": x_val, "math": math})
             
-            # map graph y to screen y (64-0)
-            # 64 pixels height. 
+
             py = 64 - int((y_val - ymin) / (ymax - ymin) * 64)
             
             if 0 <= py < 64:
                 oled.pixel(col, py, 1)
-                # simple line connect
+
                 if prev_py is not None and abs(prev_py - py) < 10:
                     oled.line(col-1, prev_py, col, py, 1)
                 prev_py = py
