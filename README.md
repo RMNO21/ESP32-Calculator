@@ -28,6 +28,7 @@ The calculator is divided into several specialized modes, accessible via a dedic
 * Memory registers (M+, M-, Recall, Clear).
 * History scrolling to revisit previous calculations.
 
+![IMG_20251224_170957](https://github.com/user-attachments/assets/7da8727b-d1c4-410f-a12b-81bed7eeb05b)
 
 
 ---
